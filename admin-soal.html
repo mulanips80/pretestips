@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bank Soal - Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { biru: '#0EA5E9', biruTua: '#0284C7', ungu: '#8B5CF6' }
+                    },
+                    fontFamily: { sans: ['Poppins', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: 'Poppins', sans-serif;
+            background: linear-gradient(180deg, #E4F4FF 0%, #F2FAFF 35%, #FFFFFF 100%); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800 antialiased">
+    <div id="app"></div>
+
+    <script>
+        const SUPABASE_URL = 'https://lhfjydoqphlypsgglklh.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Pf4G_sAlH9HBz32NO4Y-7w_8y1yKJfI';
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const HURUF = ['a', 'b', 'c', 'd', 'e'];
+
+        let st = {
+            masuk: false,
+            memuat: false,
+            pesan: '',
+            galat: '',
+            mapel: [],
+            daftar: [],
+            cari: '',
+            filterMapel: '',
+            layar: 'daftar', // daftar | form | tempel
+            form: null,
+            tempelTeks: '',
+            tempelHasil: []
+        };
+
+        function esc(s) {
+            return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            if (!st.masuk) app.innerHTML = renderLogin();
+            else if (st.layar === 'form') app.innerHTML = renderForm();
+            else if (st.layar === 'tempel') app.innerHTML = renderTempel();
+            else app.innerHTML = renderDaftar();
+        }
+
+        function renderLogin() {
+            return `
+                <div class="min-h-screen flex items-center justify-center p-4">
+                    <div class="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 w-full max-w-sm space-y-5">
+                        <div class="text-center space-y-2">
+                            <div class="w-14 h-14 mx-auto rounded-2xl bg-rose-50 text-brand-biru flex items-center justify-center text-2xl">
+                                <i class="fa-solid fa-pen-to-square"></i>
+                            </div>
+                            <h1 class="text-lg font-bold text-gray-900">Editor Bank Soal</h1>
+                            <p class="text-xs text-gray-500">Masuk dengan akun guru</p>
+                        </div>
+                        <form onsubmit="event.preventDefault(); login(this.email.value.trim(), this.pw.value);" class="space-y-3">
+                            <input name="email" type="email" required placeholder="Email" class="w-full p-3 border-2 border-gray-200 focus:border-brand-biru rounded-xl text-sm outline-none">
+                            <input name="pw" type="password" required placeholder="Kata sandi" class="w-full p-3 border-2 border-gray-200 focus:border-brand-biru rounded-xl text-sm outline-none">
+                            ${st.pesan ? `<p class="text-xs text-red-600">${esc(st.pesan)}</p>` : ''}
+                            <button type="submit" class="w-full py-3 bg-brand-biru hover:bg-brand-biruTua text-white font-bold rounded-xl text-sm">
+                                ${st.memuat ? 'Memuat...' : 'Masuk'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function login(email, pw) {
+            st.memuat = true; st.pesan = ''; render();
+            const { error } = await db.auth.signInWithPassword({ email, password: pw });
+            st.memuat = false;
+            if (error) { st.pesan = 'Email atau kata sandi salah.'; render(); return; }
+            await muat();
+        }
+
+        async function muat() {
+            st.memuat = true;
+            const [mapelRes, soalRes] = await Promise.all([
+                db.from('mapel').select('*').order('nama'),
+                db.from('bank_soal').select('*').order('created_at', { ascending: false })
+            ]);
+            st.memuat = false;
+            if (mapelRes.error || soalRes.error) {
+                st.pesan = 'Gagal memuat: ' + (mapelRes.error || soalRes.error).message;
+                render();
+                return;
+            }
+            st.mapel = mapelRes.data;
+            st.daftar = soalRes.data;
+            st.masuk = true;
+            render();
+        }
+
+        function namaMapel(id) {
+            const m = st.mapel.find(x => x.id === id);
+            return m ? m.nama : '-';
+        }
+
+        function renderDaftar() {
+            const list = st.daftar.filter(s =>
+                (!st.filterMapel || String(s.mapel_id) === st.filterMapel) &&
+                (!st.cari || (s.pertanyaan + ' ' + (s.kategori || '')).toLowerCase().includes(st.cari.toLowerCase()))
+            );
+
+            return `
+                ${renderHeader()}
+                <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+                    <div class="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col sm:flex-row gap-3">
+                        <input type="text" value="${esc(st.cari)}" oninput="setCari(this.value)" placeholder="Cari soal atau kategori..." class="flex-1 p-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-biru">
+                        <select onchange="setFilterMapel(this.value)" class="p-2.5 border border-gray-300 rounded-xl text-sm bg-white">
+                            <option value="">Semua mapel</option>
+                            ${st.mapel.map(m => `<option value="${m.id}" ${st.filterMapel === String(m.id) ? 'selected' : ''}>${esc(m.nama)}</option>`).join('')}
+                        </select>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <p class="text-xs text-gray-500">${list.length} soal</p>
+                        <button onclick="bukaTempel()" class="px-3.5 py-2 border border-gray-300 hover:bg-gray-50 rounded-xl text-xs font-bold text-gray-700">
+                            <i class="fa-solid fa-paste"></i> Tempel dari Word
+                        </button>
+                    </div>
+
+                    <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+                                        <th class="p-3 text-left w-10">No</th>
+                                        <th class="p-3 text-left">Soal</th>
+                                        <th class="p-3 text-left w-32">Mapel</th>
+                                        <th class="p-3 text-left w-24">Kelas</th>
+                                        <th class="p-3 text-center w-16">Kunci</th>
+                                        <th class="p-3 text-center w-16">Poin</th>
+                                        <th class="p-3 text-right w-32">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${list.length ? list.map((s, i) => `
+                                        <tr class="border-t border-gray-100 align-top hover:bg-gray-50/60">
+                                            <td class="p-3 text-gray-400">${i + 1}</td>
+                                            <td class="p-3">
+                                                <div class="flex gap-2">
+                                                    ${s.gambar_url ? `<img src="${esc(s.gambar_url)}" class="w-10 h-10 object-cover rounded-lg border border-gray-200 shrink-0">` : ''}
+                                                    <div class="min-w-0">
+                                                        <p class="text-gray-800 line-clamp-2">${esc(s.pertanyaan)}</p>
+                                                        ${s.kategori ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-brand-ungu">${esc(s.kategori)}</span>` : ''}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="p-3 text-gray-600">${esc(namaMapel(s.mapel_id))}</td>
+                                            <td class="p-3 text-gray-600">${esc(s.kelas || '-')}</td>
+                                            <td class="p-3 text-center font-bold uppercase">${esc(s.kunci)}</td>
+                                            <td class="p-3 text-center">${s.poin}</td>
+                                            <td class="p-3 text-right whitespace-nowrap">
+                                                <button onclick="bukaForm('${s.id}')" class="p-2 text-gray-500 hover:text-brand-biru" title="Ubah"><i class="fa-solid fa-pen"></i></button>
+                                                <button onclick="duplikat('${s.id}')" class="p-2 text-gray-500 hover:text-blue-600" title="Duplikat"><i class="fa-solid fa-copy"></i></button>
+                                                <button onclick="hapus('${s.id}')" class="p-2 text-gray-500 hover:text-red-600" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+                                            </td>
+                                        </tr>
+                                    `).join('') : `<tr><td colspan="7" class="p-8 text-center text-xs text-gray-500">Belum ada soal. Klik "Soal Baru" atau "Tempel dari Word".</td></tr>`}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHeader() {
+            return `
+                <div class="bg-brand-biru text-white py-3 px-4 sm:px-6 shadow-md">
+                    <div class="max-w-6xl mx-auto flex items-center justify-between gap-3">
+                        <div class="flex items-center space-x-2 min-w-0">
+                            <i class="fa-solid fa-book-open text-amber-300"></i>
+                            <span class="text-sm font-semibold truncate">Bank Soal</span>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button onclick="bukaForm()" class="bg-white text-brand-biru hover:bg-rose-50 px-3.5 py-1.5 rounded-xl text-xs font-bold">
+                                <i class="fa-solid fa-plus"></i> Soal Baru
+                            </button>
+                            <button onclick="keluar()" class="bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-xl text-xs font-semibold">
+                                Keluar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function keluar() {
+            await db.auth.signOut();
+            st = { ...st, masuk: false, daftar: [], mapel: [], layar: 'daftar' };
+            render();
+        }
+
+        function setCari(v) {
+            st.cari = v;
+            const sel = document.activeElement;
+            render();
+            const el = document.querySelector('input[placeholder^="Cari soal"]');
+            if (el) { el.focus(); el.value = v; }
+        }
+
+        function setFilterMapel(v) { st.filterMapel = v; render(); }
+
+        function formKosong() {
+            return {
+                id: null,
+                mapel_id: st.mapel.length ? st.mapel[0].id : null,
+                kelas: '',
+                kategori: '',
+                pertanyaan: '',
+                gambar_url: '',
+                opsi: [
+                    { teks: '', gambar: '' },
+                    { teks: '', gambar: '' },
+                    { teks: '', gambar: '' },
+                    { teks: '', gambar: '' }
+                ],
+                kunci: 'a',
+                poin: 4
+            };
+        }
+
+        function bukaForm(id) {
+            if (id) {
+                const s = st.daftar.find(x => x.id === id);
+                if (!s) return;
+                st.form = {
+                    id: s.id,
+                    mapel_id: s.mapel_id,
+                    kelas: s.kelas || '',
+                    kategori: s.kategori || '',
+                    pertanyaan: s.pertanyaan,
+                    gambar_url: s.gambar_url || '',
+                    opsi: (Array.isArray(s.opsi) ? s.opsi : []).map(o => ({ teks: o.teks || '', gambar: o.gambar || '' })),
+                    kunci: s.kunci,
+                    poin: s.poin
+                };
+                while (st.form.opsi.length < 4) st.form.opsi.push({ teks: '', gambar: '' });
+            } else {
+                st.form = formKosong();
+            }
+            st.layar = 'form';
+            st.galat = '';
+            render();
+        }
+
+        function renderPreview(f, idPrefix = '') {
+            return `
+                <div class="border border-gray-200 rounded-xl p-4 bg-gray-50/60 space-y-3" id="${idPrefix}preview">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Pratinjau</span>
+                        <span class="text-[10px] text-gray-400">${esc(namaMapel(f.mapel_id))}${f.kelas ? ' Â· ' + esc(f.kelas) : ''}</span>
+                    </div>
+                    <p class="text-sm text-gray-900 leading-relaxed whitespace-pre-line">${esc(f.pertanyaan) || '<span class="text-gray-400">Pertanyaan belum diisi</span>'}</p>
+                    ${f.gambar_url ? `<img src="${esc(f.gambar_url)}" class="max-h-64 rounded-lg border border-gray-200">` : ''}
+                    <div class="space-y-1.5">
+                        ${f.opsi.map((o, i) => `
+                            <div class="flex items-start gap-2 text-sm">
+                                <span class="w-5 h-5 rounded-full bg-white border border-gray-300 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">${HURUF[i].toUpperCase()}</span>
+                                <div class="min-w-0">
+                                    <span class="${f.kunci === HURUF[i] ? 'font-semibold text-emerald-700' : 'text-gray-700'}">${esc(o.teks) || '<span class="text-gray-300">opsi kosong</span>'}</span>
+                                    ${o.gambar ? `<img src="${esc(o.gambar)}" class="max-h-24 rounded border border-gray-200 mt-1">` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderForm() {
+            const f = st.form;
+
+            return `
+                ${renderHeader()}
+                <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+                    <button onclick="kembaliDaftar()" class="text-xs font-semibold text-gray-600 hover:text-gray-900 mb-4">
+                        <i class="fa-solid fa-arrow-left"></i> Kembali ke daftar
+                    </button>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                        <div class="lg:col-span-7 bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+                            <h2 class="text-base font-bold text-gray-900">${f.id ? 'Ubah Soal' : 'Soal Baru'}</h2>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-600 uppercase mb-1">Mapel</label>
+                                    <select onchange="ubahField('mapel_id', Number(this.value))" class="w-full p-2.5 border border-gray-300 rounded-xl text-sm bg-white">
+                                        ${st.mapel.map(m => `<option value="${m.id}" ${f.mapel_id === m.id ? 'selected' : ''}>${esc(m.nama)}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-600 uppercase mb-1">Kelas</label>
+                                    <input type="text" value="${esc(f.kelas)}" oninput="ubahField('kelas', this.value)" placeholder="8 / 9 / semua" class="w-full p-2.5 border border-gray-300 rounded-xl text-sm">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-600 uppercase mb-1">Kategori / Bab</label>
+                                    <input type="text" value="${esc(f.kategori)}" oninput="ubahField('kategori', this.value)" placeholder="Sumpah Pemuda" class="w-full p-2.5 border border-gray-300 rounded-xl text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-bold text-gray-600 uppercase mb-1">Poin</label>
+                                    <input type="number" min="1" value="${f.poin}" oninput="ubahField('poin', Number(this.value))" class="w-full p-2.5 border border-gray-300 rounded-xl text-sm">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-600 uppercase mb-1">Pertanyaan</label>
+                                <textarea rows="5" oninput="ubahField('pertanyaan', this.value)" placeholder="Tulis pertanyaan..." class="w-full p-3 border border-gray-300 rounded-xl text-sm custom-scrollbar">${esc(f.pertanyaan)}</textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-600 uppercase mb-1">Gambar soal (opsional)</label>
+                                <div class="flex items-center gap-3">
+                                    <input type="file" accept="image/*" onchange="unggahGambar(this, 'gambar_url')" class="text-xs">
+                                    ${f.gambar_url ? `
+                                        <div class="flex items-center gap-2">
+                                            <img src="${esc(f.gambar_url)}" class="h-14 rounded border border-gray-200">
+                                            <button onclick="hapusGambar()" class="text-xs text-red-600 hover:underline">Hapus</button>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                <p class="text-[10px] text-gray-400 mt-1">JPG/PNG, maksimal 2 MB. Otomatis diunggah.</p>
+                            </div>
+
+                            <div class="space-y-2">
+                                <label class="block text-[11px] font-bold text-gray-600 uppercase">Pilihan Jawaban</label>
+                                ${f.opsi.map((o, i) => `
+                                    <div class="flex items-start gap-2">
+                                        <button onclick="pilihKunci(${i})" class="w-7 h-7 rounded-full text-xs font-bold shrink-0 mt-1 border-2 ${f.kunci === HURUF[i] ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-white border-gray-300 text-gray-600'}" title="Jadikan kunci">
+                                            ${HURUF[i].toUpperCase()}
+                                        </button>
+                                        <div class="flex-1 space-y-1">
+                                            <input type="text" value="${esc(o.teks)}" oninput="ubahOpsi(${i}, 'teks', this.value)" placeholder="Teks pilihan ${HURUF[i].toUpperCase()}" class="w-full p-2.5 border border-gray-300 rounded-xl text-sm">
+                                            <div class="flex items-center gap-2">
+                                                <input type="file" accept="image/*" onchange="unggahOpsi(this, ${i})" class="text-[10px] text-gray-500">
+                                                ${o.gambar ? `<img src="${esc(o.gambar)}" class="h-8 rounded border border-gray-200"><button onclick="hapusGambarOpsi(${i})" class="text-[10px] text-red-600">hapus</button>` : ''}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                                <div class="flex gap-2 pt-1">
+                                    <button onclick="tambahOpsi()" class="text-xs font-semibold text-brand-biru"><i class="fa-solid fa-plus"></i> Tambah pilihan</button>
+                                    ${f.opsi.length > 2 ? `<button onclick="kurangiOpsi()" class="text-xs font-semibold text-gray-500"><i class="fa-solid fa-minus"></i> Kurangi</button>` : ''}
+                                </div>
+                            </div>
+
+                            ${st.galat ? `<p class="text-xs text-red-600">${esc(st.galat)}</p>` : ''}
+
+                            <div class="flex gap-2 pt-2 border-t border-gray-100">
+                                <button onclick="simpanSoal()" class="flex-1 py-3 bg-brand-biru hover:bg-brand-biruTua text-white font-bold rounded-xl text-sm">
+                                    <i class="fa-solid fa-floppy-disk"></i> ${f.id ? 'Simpan Perubahan' : 'Simpan Soal'}
+                                </button>
+                                <button onclick="kembaliDaftar()" class="px-4 py-3 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600">Batal</button>
+                            </div>
+                        </div>
+
+                        <div class="lg:col-span-5 lg:sticky lg:top-4">
+                            ${renderPreview(f)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function kembaliDaftar() {
+            st.layar = 'daftar';
+            st.form = null;
+            st.galat = '';
+            render();
+        }
+
+        function ubahField(k, v) {
+            st.form[k] = v;
+            perbaruiPratinjau();
+        }
+
+        function ubahOpsi(i, k, v) {
+            st.form.opsi[i][k] = v;
+            perbaruiPratinjau();
+        }
+
+        function pilihKunci(i) {
+            st.form.kunci = HURUF[i];
+            render();
+        }
+
+        function tambahOpsi() {
+            if (st.form.opsi.length >= 5) return;
+            st.form.opsi.push({ teks: '', gambar: '' });
+            render();
+        }
+
+        function kurangiOpsi() {
+            if (st.form.opsi.length <= 2) return;
+            st.form.opsi.pop();
+            if (!st.form.opsi.some((o, i) => HURUF[i] === st.form.kunci)) st.form.kunci = 'a';
+            render();
+        }
+
+        function perbaruiPratinjau() {
+            const el = document.getElementById('preview');
+            if (!el) return;
+            const tmp = document.createElement('div');
+            tmp.innerHTML = renderPreview(st.form, 'tmp-');
+            el.innerHTML = tmp.firstElementChild.innerHTML;
+        }
+
+        async function unggahGambar(input, field) {
+            const file = input.files[0];
+            if (!file) return;
+            if (file.size > 2 * 1024 * 1024) { st.galat = 'Ukuran gambar maksimal 2 MB.'; render(); return; }
+            st.galat = 'Mengunggah gambar...';
+            render();
+            const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+            const path = `soal/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+            const { error } = await db.storage.from('soal').upload(path, file, { upsert: false });
+            if (error) { st.galat = 'Gagal unggah: ' + error.message; render(); return; }
+            const { data } = db.storage.from('soal').getPublicUrl(path);
+            st.form[field] = data.publicUrl;
+            st.galat = '';
+            render();
+        }
+
+        async function unggahOpsi(input, i) {
+            const file = input.files[0];
+            if (!file) return;
+            if (file.size > 2 * 1024 * 1024) { st.galat = 'Ukuran gambar maksimal 2 MB.'; render(); return; }
+            st.galat = 'Mengunggah gambar...';
+            render();
+            const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+            const path = `opsi/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+            const { error } = await db.storage.from('soal').upload(path, file, { upsert: false });
+            if (error) { st.galat = 'Gagal unggah: ' + error.message; render(); return; }
+            const { data } = db.storage.from('soal').getPublicUrl(path);
+            st.form.opsi[i].gambar = data.publicUrl;
+            st.galat = '';
+            render();
+        }
+
+        function hapusGambar() { st.form.gambar_url = ''; render(); }
+        function hapusGambarOpsi(i) { st.form.opsi[i].gambar = ''; render(); }
+
+        async function simpanSoal() {
+            const f = st.form;
+            if (!f.pertanyaan.trim()) { st.galat = 'Pertanyaan wajib diisi.'; render(); return; }
+            const opsi = f.opsi.map(o => ({ teks: (o.teks || '').trim(), gambar: o.gambar || '' }))
+                .filter(o => o.teks || o.gambar);
+            if (opsi.length < 2) { st.galat = 'Isi minimal dua pilihan jawaban.'; render(); return; }
+            const idxKunci = HURUF.indexOf(f.kunci);
+            if (idxKunci >= opsi.length) { st.galat = 'Kunci menunjuk pilihan yang kosong.'; render(); return; }
+
+            const payload = {
+                mapel_id: f.mapel_id,
+                kelas: f.kelas.trim() || null,
+                kategori: f.kategori.trim() || null,
+                pertanyaan: f.pertanyaan.trim(),
+                gambar_url: f.gambar_url || null,
+                opsi,
+                kunci: f.kunci,
+                poin: f.poin || 4
+            };
+
+            st.memuat = true;
+            const res = f.id
+                ? await db.from('bank_soal').update(payload).eq('id', f.id)
+                : await db.from('bank_soal').insert(payload);
+            st.memuat = false;
+
+            if (res.error) { st.galat = 'Gagal menyimpan: ' + res.error.message; render(); return; }
+            await muat();
+            st.layar = 'daftar';
+            st.form = null;
+            render();
+        }
+
+        async function duplikat(id) {
+            const s = st.daftar.find(x => x.id === id);
+            if (!s) return;
+            const payload = {
+                mapel_id: s.mapel_id, kelas: s.kelas, kategori: s.kategori,
+                pertanyaan: s.pertanyaan, gambar_url: s.gambar_url,
+                opsi: s.opsi, kunci: s.kunci, poin: s.poin
+            };
+            const { error } = await db.from('bank_soal').insert(payload);
+            if (error) { alert('Gagal duplikat: ' + error.message); return; }
+            await muat();
+        }
+
+        async function hapus(id) {
+            if (!confirm('Hapus soal ini? Tindakan ini tidak dapat dibatalkan.')) return;
+            const { error } = await db.from('bank_soal').delete().eq('id', id);
+            if (error) { alert('Gagal menghapus: ' + error.message); return; }
+            await muat();
+        }
+
+        // ---------- Tempel dari Word ----------
+
+        function bukaTempel() {
+            st.layar = 'tempel';
+            st.tempelTeks = '';
+            st.tempelHasil = [];
+            st.galat = '';
+            render();
+        }
+
+        function parseTempel(teks) {
+            const lines = teks.split(/\r?\n/);
+            const hasil = [];
+            let cur = null;
+            let mode = null;
+
+            for (const raw of lines) {
+                const line = raw.trim();
+                if (!line) continue;
+
+                const km = line.match(/^(kunci|jawaban)\s*[:=]\s*([a-eA-E])/i);
+                if (km && cur) { cur.kunci = km[2].toLowerCase(); continue; }
+
+                const qm = line.match(/^(\d+)[.)]\s+(.*)$/);
+                const om = line.match(/^([a-eA-E])[.)]\s+(.*)$/);
+
+                if (qm && (!cur || (cur.opsi && cur.opsi.length >= 2))) {
+                    if (cur && cur.opsi && cur.opsi.length >= 2) hasil.push(cur);
+                    cur = { pertanyaan: qm[2], opsi: [], kunci: '' };
+                    mode = 'q';
+                    continue;
+                }
+
+                if (om && cur) {
+                    cur.opsi.push(om[2]);
+                    mode = 'o';
+                    continue;
+                }
+
+                if (cur) {
+                    if (mode === 'o') cur.opsi[cur.opsi.length - 1] += ' ' + line;
+                    else cur.pertanyaan += ' ' + line;
+                }
+            }
+            if (cur && cur.opsi && cur.opsi.length >= 2) hasil.push(cur);
+            return hasil;
+        }
+
+        function prosesTempel() {
+            const teks = document.getElementById('tempel-area').value;
+            st.tempelTeks = teks;
+            st.tempelHasil = parseTempel(teks);
+            if (!st.tempelHasil.length) st.galat = 'Tidak ada soal yang terbaca. Pastikan format: nomor, pertanyaan, lalu a. b. c. d.';
+            else st.galat = '';
+            render();
+        }
+
+        function renderTempel() {
+            return `
+                ${renderHeader()}
+                <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+                    <button onclick="kembaliDaftar()" class="text-xs font-semibold text-gray-600 hover:text-gray-900">
+                        <i class="fa-solid fa-arrow-left"></i> Kembali
+                    </button>
+
+                    <div class="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
+                        <h2 class="text-base font-bold text-gray-900">Tempel Soal dari Word</h2>
+                        <p class="text-xs text-gray-500">Salin soal dari Word, lalu tempel di sini. Format yang dikenali:</p>
+                        <pre class="text-[11px] bg-gray-50 border border-gray-200 rounded-lg p-3 text-gray-600 overflow-x-auto">1. Pertanyaan pertama ...
+a. Pilihan A
+b. Pilihan B
+c. Pilihan C
+d. Pilihan D
+Kunci: b
+
+2. Pertanyaan kedua ...
+a. ...</pre>
+                        <textarea id="tempel-area" rows="12" class="w-full p-3 border border-gray-300 rounded-xl text-xs font-mono custom-scrollbar" placeholder="Tempel di sini...">${esc(st.tempelTeks)}</textarea>
+
+                        <div class="grid grid-cols-3 gap-3">
+                            <select id="t-mapel" class="p-2.5 border border-gray-300 rounded-xl text-sm bg-white">
+                                ${st.mapel.map(m => `<option value="${m.id}">${esc(m.nama)}</option>`).join('')}
+                            </select>
+                            <input id="t-kelas" placeholder="Kelas" class="p-2.5 border border-gray-300 rounded-xl text-sm">
+                            <input id="t-poin" type="number" value="4" min="1" placeholder="Poin" class="p-2.5 border border-gray-300 rounded-xl text-sm">
+                        </div>
+
+                        ${st.galat ? `<p class="text-xs text-red-600">${esc(st.galat)}</p>` : ''}
+
+                        <div class="flex gap-2">
+                            <button onclick="prosesTempel()" class="py-2.5 px-4 border border-gray-300 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Proses
+                            </button>
+                            ${st.tempelHasil.length ? `
+                                <button onclick="simpanTempel()" class="flex-1 py-2.5 bg-brand-biru hover:bg-brand-biruTua text-white rounded-xl text-sm font-bold">
+                                    Simpan ${st.tempelHasil.length} soal
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    ${st.tempelHasil.length ? `
+                        <div class="bg-white rounded-2xl border border-gray-200 p-5">
+                            <h3 class="text-sm font-bold text-gray-900 mb-3">Pratinjau ${st.tempelHasil.length} soal</h3>
+                            <div class="space-y-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
+                                ${st.tempelHasil.map((q, i) => `
+                                    <div class="border border-gray-100 rounded-xl p-3 text-sm">
+                                        <p class="font-semibold text-gray-900 mb-1">${i + 1}. ${esc(q.pertanyaan)}</p>
+                                        ${q.opsi.map((o, j) => `
+                                            <p class="text-xs ${q.kunci === HURUF[j] ? 'text-emerald-700 font-semibold' : 'text-gray-600'}">
+                                                ${HURUF[j]}. ${esc(o)}
+                                            </p>
+                                        `).join('')}
+                                        ${q.kunci ? `<p class="text-[11px] text-gray-500 mt-1">Kunci: ${q.kunci.toUpperCase()}</p>` : '<p class="text-[11px] text-red-500 mt-1">Kunci belum terdeteksi</p>'}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        async function simpanTempel() {
+            const mapelId = Number(document.getElementById('t-mapel').value);
+            const kelas = document.getElementById('t-kelas').value.trim();
+            const poin = Number(document.getElementById('t-poin').value) || 4;
+
+            const belumKunci = st.tempelHasil.filter(q => !q.kunci).length;
+            if (belumKunci) {
+                if (!confirm(`${belumKunci} soal belum punya kunci. Tetap simpan?`)) return;
+            }
+
+            const payload = st.tempelHasil.map(q => ({
+                mapel_id: mapelId,
+                kelas: kelas || null,
+                kategori: null,
+                pertanyaan: q.pertanyaan.trim(),
+                gambar_url: null,
+                opsi: q.opsi.map(t => ({ teks: t.trim(), gambar: '' })),
+                kunci: q.kunci || 'a',
+                poin
+            }));
+
+            const { error } = await db.from('bank_soal').insert(payload);
+            if (error) { st.galat = 'Gagal menyimpan: ' + error.message; render(); return; }
+            await muat();
+            st.layar = 'daftar';
+            st.tempelHasil = [];
+            render();
+        }
+
+        (async function init() {
+            const { data } = await db.auth.getSession();
+            if (data.session) { await muat(); }
+            else render();
+        })();
+    </script>
+</body>
+</html>

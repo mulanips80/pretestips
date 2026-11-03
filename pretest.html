@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pretest OSN dan OMBN IPS SMP 2027</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            biru: '#0EA5E9',
+                            biruTua: '#0284C7',
+                            langit: '#38BDF8',
+                            ungu: '#8B5CF6',
+                            hijau: '#22C55E',
+                            merah: '#FB7185'
+                        }
+                    },
+                    fontFamily: { sans: ['Poppins', 'sans-serif'] },
+                    boxShadow: {
+                        lembut: '0 10px 30px -12px rgba(14, 165, 233, 0.35)',
+                        kartu: '0 4px 20px -8px rgba(15, 23, 42, 0.12)'
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(180deg, #E4F4FF 0%, #F2FAFF 35%, #FFFFFF 100%);
+        }
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #BAE6FD; border-radius: 10px; }
+        .gradien-biru { background-image: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 55%, #0284C7 100%); }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800 antialiased">
+    <div id="app" class="min-h-screen flex flex-col"></div>
+
+    <script>
+        const SUPABASE_URL = 'https://lhfjydoqphlypsgglklh.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Pf4G_sAlH9HBz32NO4Y-7w_8y1yKJfI';
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const DURASI = 45 * 60;
+        const KUNCI_SIMPAN = 'pretest_osn_2027_v1';
+        const LABEL = ['A', 'B', 'C', 'D', 'E'];
+        const HURUF = ['a', 'b', 'c', 'd', 'e'];
+
+        const KELAS = [
+            { tingkat: 7, nama: ['Al Khawarizmi', 'Al Farabi', 'Al Battani', 'Al Biruni', 'Al Jazari', 'Al Kindi', 'Al Zahrawi'] },
+            { tingkat: 8, nama: ['Imam Ahmad', 'Imam Muslim', 'Imam Bukhori', 'Imam Tirmidzi', 'Imam Ghazali', 'Imam Nawawi', 'Imam Nasa’i'] },
+            { tingkat: 9, nama: ['Ibnu Hayyan', 'Ibnu Khaldun', 'Ibnu Sina', 'Ibnu Rushd', 'Ibnu Batuta'] }
+        ];
+
+        let st = {
+            layar: 'form',
+            nama: '',
+            kelas: '',
+            soal: [],
+            jawaban: {},
+            idx: 0,
+            sisa: DURASI,
+            timer: null,
+            memuat: false,
+            pesan: '',
+            hasil: null
+        };
+
+        function esc(s) {
+            return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function simpanLokal() {
+            try {
+                localStorage.setItem(KUNCI_SIMPAN, JSON.stringify({
+                    nama: st.nama, kelas: st.kelas, jawaban: st.jawaban,
+                    idx: st.idx, sisa: st.sisa
+                }));
+            } catch (e) {}
+        }
+
+        function muatLokal() {
+            try {
+                const d = JSON.parse(localStorage.getItem(KUNCI_SIMPAN) || 'null');
+                if (!d) return;
+                st.nama = d.nama || '';
+                st.kelas = d.kelas || '';
+                st.jawaban = d.jawaban || {};
+                st.idx = d.idx || 0;
+                st.sisa = typeof d.sisa === 'number' ? d.sisa : DURASI;
+            } catch (e) {}
+        }
+
+        function render() {
+            document.getElementById('app').innerHTML =
+                st.layar === 'quiz' ? renderQuiz() :
+                st.layar === 'hasil' ? renderHasil() : renderForm();
+            if (st.layar === 'quiz') perbaruiTimer();
+        }
+
+        function renderForm() {
+            const opsi = KELAS.map(g => `
+                <optgroup label="Kelas ${g.tingkat}">
+                    ${g.nama.map(n => {
+                        const v = `${g.tingkat} ${n}`;
+                        return `<option value="${esc(v)}" ${st.kelas === v ? 'selected' : ''}>${v}</option>`;
+                    }).join('')}
+                </optgroup>
+            `).join('');
+
+            return `
+                <div class="gradien-biru text-white px-5 pt-10 pb-28 relative overflow-hidden">
+                    <div class="max-w-lg mx-auto relative z-10">
+                        <div class="inline-flex items-center gap-2 bg-white/20 backdrop-blur px-3.5 py-1.5 rounded-full text-[11px] font-semibold mb-4">
+                            <span class="w-1.5 h-1.5 rounded-full bg-lime-300"></span>
+                            <span>OSN &amp; OMBN 2027</span>
+                        </div>
+                        <h1 class="text-2xl sm:text-3xl font-extrabold leading-snug mb-2">
+                            Pretest OSN dan OMBN<br>IPS SMP 2027
+                        </h1>
+                        <p class="text-sky-50/90 text-sm leading-relaxed max-w-md">
+                            Ukur kemampuan awalmu sebelum pembelajaran dimulai.
+                        </p>
+                    </div>
+                    <div class="absolute -right-16 -top-10 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
+                    <div class="absolute -left-10 bottom-0 w-40 h-40 bg-sky-300/20 rounded-full blur-2xl"></div>
+                </div>
+
+                <div class="max-w-lg mx-auto px-5 -mt-20 mb-8 w-full space-y-4 relative z-20">
+                    <div class="bg-white rounded-3xl p-6 shadow-kartu border border-sky-100/70 space-y-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-sky-50 text-brand-biruTua flex items-center justify-center">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-sm font-bold text-slate-900">Data Peserta</h2>
+                                <p class="text-[11px] text-slate-500">Isi sebelum memulai</p>
+                            </div>
+                        </div>
+
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500 mb-1.5">Nama Lengkap</label>
+                                <input id="f-nama" type="text" value="${esc(st.nama)}" placeholder="Contoh: Ahmad Fauzi" class="w-full px-4 py-3.5 bg-sky-50/60 border border-sky-100 focus:border-brand-langit focus:bg-white rounded-2xl text-sm outline-none transition">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500 mb-1.5">Kelas</label>
+                                <select id="f-kelas" class="w-full px-4 py-3.5 bg-sky-50/60 border border-sky-100 focus:border-brand-langit focus:bg-white rounded-2xl text-sm outline-none transition">
+                                    <option value="">-- Pilih Kelas --</option>
+                                    ${opsi}
+                                </select>
+                            </div>
+                        </div>
+
+                        ${st.pesan ? `<p class="text-xs text-rose-500">${esc(st.pesan)}</p>` : ''}
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="bg-white rounded-2xl p-3 text-center shadow-kartu border border-sky-100/70">
+                            <span class="block text-lg font-extrabold text-brand-biruTua">25</span>
+                            <span class="text-[10px] font-medium text-slate-500">Soal</span>
+                        </div>
+                        <div class="bg-white rounded-2xl p-3 text-center shadow-kartu border border-sky-100/70">
+                            <span class="block text-lg font-extrabold text-brand-ungu">45</span>
+                            <span class="text-[10px] font-medium text-slate-500">Menit</span>
+                        </div>
+                        <div class="bg-white rounded-2xl p-3 text-center shadow-kartu border border-sky-100/70">
+                            <span class="block text-lg font-extrabold text-brand-hijau">100</span>
+                            <span class="text-[10px] font-medium text-slate-500">Skor</span>
+                        </div>
+                    </div>
+
+                    <p class="text-[11px] text-slate-500 leading-relaxed px-2 text-center">
+                        Kerjakan dengan jujur. Hasil pretest menjadi nilai awal, bukan nilai akhir.
+                    </p>
+                </div>
+
+                <div class="bg-white/90 backdrop-blur border-t border-sky-100 p-4 sticky bottom-0 z-20">
+                    <div class="max-w-lg mx-auto">
+                        <button onclick="mulai()" ${st.memuat ? 'disabled' : ''} class="w-full py-3.5 gradien-biru text-white font-semibold rounded-2xl shadow-lembut flex items-center justify-center gap-2 disabled:opacity-60">
+                            <i class="fa-solid fa-play text-sm"></i>
+                            <span>${st.memuat ? 'Memuat soal...' : 'Mulai Pretest'}</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function mulai() {
+            const nama = document.getElementById('f-nama').value.trim();
+            const kelas = document.getElementById('f-kelas').value;
+            if (!nama) { st.pesan = 'Nama wajib diisi.'; render(); return; }
+            if (!kelas) { st.pesan = 'Pilih kelas terlebih dahulu.'; render(); return; }
+
+            st.nama = nama;
+            st.kelas = kelas;
+            st.pesan = '';
+            st.memuat = true;
+            render();
+
+            const { data, error } = await db.rpc('pretest_soal');
+            st.memuat = false;
+
+            if (error) { st.pesan = 'Gagal memuat soal: ' + error.message; render(); return; }
+            if (!data || !data.length) { st.pesan = 'Soal belum tersedia. Hubungi guru.'; render(); return; }
+
+            st.soal = data.map((s, i) => ({ ...s, no: i + 1 }));
+            st.layar = 'quiz';
+            if (!Object.keys(st.jawaban).length) st.idx = 0;
+            mulaiTimer();
+            simpanLokal();
+            render();
+        }
+
+        function mulaiTimer() {
+            clearInterval(st.timer);
+            st.timer = setInterval(() => {
+                if (st.layar !== 'quiz') return;
+                st.sisa--;
+                if (st.sisa <= 0) { st.sisa = 0; kumpulkan(true); return; }
+                if (st.sisa % 5 === 0) simpanLokal();
+                perbaruiTimer();
+            }, 1000);
+        }
+
+        function perbaruiTimer() {
+            const el = document.getElementById('timer');
+            if (!el) return;
+            const m = Math.floor(st.sisa / 60).toString().padStart(2, '0');
+            const d = (st.sisa % 60).toString().padStart(2, '0');
+            el.textContent = `${m}:${d}`;
+            const wrap = el.closest('.timer-wrap');
+            if (wrap) {
+                wrap.classList.toggle('bg-rose-500', st.sisa <= 300);
+                wrap.classList.toggle('bg-sky-50', st.sisa > 300);
+                wrap.classList.toggle('text-rose-50', st.sisa <= 300);
+                wrap.classList.toggle('text-brand-biruTua', st.sisa > 300);
+            }
+        }
+
+        function renderQuiz() {
+            const s = st.soal[st.idx];
+            const dipilih = st.jawaban[s.id] || '';
+            const terjawab = Object.keys(st.jawaban).filter(k => st.jawaban[k]).length;
+            const persen = Math.round((terjawab / st.soal.length) * 100);
+
+            return `
+                <div class="bg-white border-b border-sky-100 px-4 sm:px-6 py-3 sticky top-0 z-30">
+                    <div class="max-w-lg mx-auto flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="text-[11px] font-semibold text-brand-biruTua uppercase tracking-wide">Pretest 2027</p>
+                            <p class="text-xs font-semibold text-slate-700 truncate">${esc(st.nama)}</p>
+                        </div>
+                        <div class="timer-wrap flex items-center gap-1.5 bg-sky-50 text-brand-biruTua px-3 py-1.5 rounded-full text-xs font-bold shrink-0 transition">
+                            <i class="fa-regular fa-clock"></i>
+                            <span id="timer">45:00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="max-w-lg w-full mx-auto px-4 sm:px-5 pt-4">
+                    <div class="flex items-center justify-between text-[11px] font-medium text-slate-500 mb-2">
+                        <span>Soal ${st.idx + 1} dari ${st.soal.length}</span>
+                        <span>${terjawab} terjawab</span>
+                    </div>
+                    <div class="h-2 bg-sky-100 rounded-full overflow-hidden">
+                        <div class="h-full gradien-biru rounded-full transition-all" style="width:${persen}%"></div>
+                    </div>
+                </div>
+
+                <div class="flex-1 max-w-lg w-full mx-auto px-4 sm:px-5 py-4">
+                    <div class="bg-white rounded-3xl p-5 sm:p-6 shadow-kartu border border-sky-100/70">
+                        <div class="flex items-center justify-between mb-4">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide px-2.5 py-1 bg-sky-50 text-brand-biruTua rounded-lg">${esc(s.kategori || 'IPS')}</span>
+                            <span class="text-[11px] font-medium text-slate-400">${s.poin} poin</span>
+                        </div>
+
+                        <div class="text-sm text-slate-900 font-medium leading-relaxed whitespace-pre-line mb-5">${esc(s.pertanyaan)}</div>
+                        ${s.gambar ? `<img src="${esc(s.gambar)}" class="max-h-60 w-full object-contain rounded-2xl border border-sky-100 mb-5 bg-sky-50/40">` : ''}
+
+                        <div class="space-y-2.5">
+                            ${(s.opsi || []).map((o, i) => {
+                                const aktif = dipilih === HURUF[i];
+                                return `
+                                    <button onclick="pilih('${s.id}', '${HURUF[i]}')" class="w-full text-left px-4 py-3.5 rounded-2xl border-2 transition flex items-center gap-3 ${aktif ? 'border-brand-langit bg-sky-50' : 'border-sky-100 bg-white hover:border-sky-200 hover:bg-sky-50/40'}">
+                                        <span class="w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${aktif ? 'bg-brand-biruTua text-white' : 'bg-sky-50 text-slate-500'}">${LABEL[i]}</span>
+                                        <span class="text-sm text-slate-800 leading-snug">
+                                            ${esc(o.teks)}
+                                            ${o.gambar ? `<img src="${esc(o.gambar)}" class="max-h-20 rounded-lg border border-sky-100 mt-2">` : ''}
+                                        </span>
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <div class="flex justify-center gap-1.5 mt-4 overflow-x-auto custom-scrollbar pb-2">
+                        ${st.soal.map((q, i) => {
+                            const aktif = i === st.idx;
+                            const dijawab = !!st.jawaban[q.id];
+                            let cls = 'bg-white text-slate-400 border border-sky-100';
+                            if (aktif) cls = 'gradien-biru text-white font-bold shadow-lembut';
+                            else if (dijawab) cls = 'bg-sky-100 text-brand-biruTua font-semibold border border-sky-200';
+                            return `<button onclick="pindah(${i})" class="w-7 h-7 shrink-0 rounded-full text-[10px] ${cls}">${i + 1}</button>`;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <div class="bg-white/90 backdrop-blur border-t border-sky-100 p-4 sticky bottom-0">
+                    <div class="max-w-lg mx-auto flex items-center gap-3">
+                        <button onclick="pindah(${st.idx - 1})" ${st.idx === 0 ? 'disabled' : ''} class="w-12 h-12 rounded-2xl border border-sky-100 text-brand-biruTua flex items-center justify-center disabled:opacity-30">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        ${st.idx === st.soal.length - 1
+                            ? `<button onclick="konfirmasiKumpul()" class="flex-1 h-12 gradien-biru text-white rounded-2xl text-sm font-semibold shadow-lembut flex items-center justify-center gap-2"><i class="fa-solid fa-paper-plane text-xs"></i> Kumpulkan</button>`
+                            : `<button onclick="pindah(${st.idx + 1})" class="flex-1 h-12 gradien-biru text-white rounded-2xl text-sm font-semibold shadow-lembut flex items-center justify-center gap-2">Berikutnya <i class="fa-solid fa-chevron-right text-xs"></i></button>`}
+                    </div>
+                </div>
+            `;
+        }
+
+        function pilih(id, huruf) {
+            st.jawaban[id] = huruf;
+            simpanLokal();
+            render();
+        }
+
+        function pindah(i) {
+            if (i < 0 || i >= st.soal.length) return;
+            st.idx = i;
+            simpanLokal();
+            render();
+        }
+
+        function konfirmasiKumpul() {
+            const kosong = st.soal.length - Object.keys(st.jawaban).filter(k => st.jawaban[k]).length;
+            const pesan = kosong > 0
+                ? `Masih ada ${kosong} soal belum dijawab. Tetap kumpulkan?`
+                : 'Kumpulkan jawaban sekarang?';
+            if (confirm(pesan)) kumpulkan(false);
+        }
+
+        async function kumpulkan(otomatis) {
+            clearInterval(st.timer);
+            st.memuat = true;
+            render();
+
+            const { data, error } = await db.rpc('pretest_kirim', {
+                p_nama: st.nama,
+                p_kelas: st.kelas,
+                p_jawaban: st.jawaban
+            });
+            st.memuat = false;
+
+            if (error) {
+                alert('Gagal mengirim: ' + error.message + '\nJawaban masih tersimpan. Coba lagi.');
+                if (!otomatis) mulaiTimer();
+                render();
+                return;
+            }
+
+            st.hasil = data;
+            st.layar = 'hasil';
+            localStorage.removeItem(KUNCI_SIMPAN);
+            render();
+        }
+
+        function predikat(skor) {
+            if (skor >= 85) return { teks: 'Sangat baik', cls: 'bg-emerald-50 text-emerald-600', ket: 'Menguasai konsep lintas ranah IPS dengan baik.' };
+            if (skor >= 70) return { teks: 'Baik', cls: 'bg-sky-50 text-brand-biruTua', ket: 'Menguasai sebagian besar konsep, perlu sedikit penguatan.' };
+            if (skor >= 55) return { teks: 'Cukup', cls: 'bg-amber-50 text-amber-600', ket: 'Konsep dasar mulai dikuasai, perlu latihan lebih lanjut.' };
+            return { teks: 'Perlu bimbingan', cls: 'bg-rose-50 text-rose-500', ket: 'Perlu pengulangan materi dasar dan latihan pembahasan soal.' };
+        }
+
+        function renderHasil() {
+            const h = st.hasil;
+            const skor = Number(h.skor);
+            const p = predikat(skor);
+
+            return `
+                <div class="gradien-biru text-white px-5 pt-10 pb-24">
+                    <div class="max-w-lg mx-auto text-center">
+                        <div class="w-16 h-16 mx-auto rounded-full bg-white/20 flex items-center justify-center text-2xl mb-3">
+                            <i class="fa-solid fa-award"></i>
+                        </div>
+                        <h1 class="text-xl font-bold">Pretest Selesai</h1>
+                        <p class="text-xs text-sky-50/90 mt-1">${esc(st.nama)} · ${esc(st.kelas)}</p>
+                    </div>
+                </div>
+
+                <div class="max-w-lg mx-auto px-5 -mt-16 mb-8 w-full space-y-4 relative z-20">
+                    <div class="bg-white rounded-3xl p-6 shadow-kartu border border-sky-100/70 text-center space-y-3">
+                        <span class="inline-block text-[10px] font-semibold uppercase tracking-wide px-3 py-1 rounded-lg ${p.cls}">${p.teks}</span>
+                        <div>
+                            <span class="block text-5xl font-extrabold text-slate-900">${skor}</span>
+                            <span class="text-[11px] text-slate-400">dari ${h.maks} poin</span>
+                        </div>
+                        <p class="text-xs text-slate-500 leading-relaxed">${p.ket}</p>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="bg-white rounded-2xl p-4 text-center shadow-kartu border border-sky-100/70">
+                            <span class="block text-xl font-extrabold text-emerald-500">${h.benar}</span>
+                            <span class="text-[10px] text-slate-500">Benar</span>
+                        </div>
+                        <div class="bg-white rounded-2xl p-4 text-center shadow-kartu border border-sky-100/70">
+                            <span class="block text-xl font-extrabold text-rose-400">${h.salah}</span>
+                            <span class="text-[10px] text-slate-500">Salah</span>
+                        </div>
+                        <div class="bg-white rounded-2xl p-4 text-center shadow-kartu border border-sky-100/70">
+                            <span class="block text-xl font-extrabold text-slate-400">${h.kosong}</span>
+                            <span class="text-[10px] text-slate-500">Kosong</span>
+                        </div>
+                    </div>
+
+                    <p class="text-[11px] text-slate-400 text-center leading-relaxed">
+                        Hasil tersimpan untuk guru. Silakan tutup halaman ini.
+                    </p>
+                </div>
+            `;
+        }
+
+        muatLokal();
+        render();
+    </script>
+</body>
+</html>
